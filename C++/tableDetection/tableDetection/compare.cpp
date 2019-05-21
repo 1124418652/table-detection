@@ -16,3 +16,5 @@ bool cmpCoord(const struct contoursCoord &a1, const struct contoursCoord &a2)
 {
 	return a1.coord <= a2.coord;
 }
+
+

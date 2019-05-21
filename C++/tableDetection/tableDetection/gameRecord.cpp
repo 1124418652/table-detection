@@ -198,6 +198,9 @@ bool GameRecord::_cellExtract()
 	if (this->tableImg.empty())            // 首先需要确保有正确的GameRecord类有正确的tableImg属性
 		if (!this->_warpTableRoi())
 			return false;
+	if (!this->cellList.empty())
+		this->cellList.clear();
+
 	cv::Mat tableImg = this->tableImg.clone();
 	cv::Mat grayImg;
 	cv::Mat gaussImg;
@@ -229,7 +232,7 @@ bool GameRecord::_cellExtract()
 	// 过滤横线（通过计算联通域的最小width）
 	std::vector<std::vector<cv::Point>> contoursRow;
 	std::vector<contoursCoord> contourCenterRow;
-	cv::findContours(binaryImg, contoursRow, cv::RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
+	cv::findContours(binaryRow, contoursRow, cv::RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
 	for (int i = (int)contoursRow.size() - 1; i >= 0; --i)
 	{
 		cv::RotatedRect rect = cv::minAreaRect(contoursRow[i]);
@@ -246,7 +249,7 @@ bool GameRecord::_cellExtract()
 	// 过滤竖线（通过计算连通域的最小height）
 	std::vector<std::vector<cv::Point>> contoursCol;
 	std::vector<contoursCoord> contourCenterCol;
-	cv::findContours(binaryImg, contoursCol, cv::RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
+	cv::findContours(binaryCol, contoursCol, cv::RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
 	for (int i = (int)contoursCol.size() - 1; i >= 0; --i)
 	{
 		cv::RotatedRect rect = cv::minAreaRect(contoursCol[i]);
@@ -262,21 +265,92 @@ bool GameRecord::_cellExtract()
 	}
 
 	// 通过分别绘制表格的第i条横边和第j条竖边，并求与，求取第(i,j)个角点，并进行保存
-	for (int i = 0; i < (int)contoursRow.size(); ++i)
+	int numRows = (int)contoursRow.size();
+	int numCols = (int)contoursCol.size();
+	MyPoint<int> **myPointArray;           // 构建一个二维数组记录每一行和每一列的交点坐标
+	myPointArray = new MyPoint<int>* [numRows];
+	for (int i = 0; i < numRows; ++i)
+		myPointArray[i] = new MyPoint<int> [numCols];
+	for (int i = 0; i < numRows; ++i)
 	{
-		cv::Mat binaryRowImg(cv::Size(width, height), CV_8UC1, cv::Scalar(0));
-		cv::drawContours(binaryRowImg, contoursRow, i, 255, -1);
-		for (int j = 0; j < (int)contoursCol.size(); ++j)
+		binaryRow = cv::Mat::zeros(height, width, CV_8UC1);
+		cv::drawContours(binaryRow, contoursRow, i, 255, -1);
+		for (int j = 0; j < numCols; ++j)
 		{
-			cv::Mat binaryColImg(cv::Size(width, height), CV_8UC1, cv::Scalar(0));
-			cv::drawContours(binaryColImg, contoursCol, j, 255, -1);
+			binaryCol = cv::Mat::zeros(height, width, CV_8UC1);
+			cv::drawContours(binaryCol, contoursCol, j, 255, -1);
 			cv::Mat cornerPointImg;
-			cv::bitwise_and(binaryRowImg, binaryColImg, cornerPointImg);
+			cv::bitwise_and(binaryRow, binaryCol, cornerPointImg);
 			std::vector<std::vector<cv::Point>> contours;
 			cv::findContours(cornerPointImg, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
-
+			if (!contours.empty())        // 第i条横线和第j条竖线存在交点
+			{
+				MyPoint<int> tmpPoint(contours.front().front().x, contours.front().front().y);
+				myPointArray[i][j] = tmpPoint;
+			}
 		}
 	}
+
+	// 通过得到的交点坐标，提取cell的roi
+	for (int row = 1; row < numRows - 1; ++row)
+	{
+		for (int col = 1; col < numCols - 1; ++col)
+		{
+			if (col % 3 != 0)
+			{
+				int rowBegin, rowEnd, colBegin, colEnd;
+				if (-1 == myPointArray[row][col].y)
+				{
+					rowBegin = mypt::mean(myPointArray[row], numCols, false) + 2;
+					MyPoint<int> *tmp = new MyPoint<int>[numRows];
+					for (int i = 0; i < numRows; ++i)
+						tmp[i] = myPointArray[i][col];
+					colBegin = mypt::mean(tmp, numRows, true) + 2;
+					delete[] tmp;
+				}
+				else
+				{
+					rowBegin = myPointArray[row][col].y + 2;
+					colBegin = myPointArray[row][col].x + 2;
+				}
+				if (-1 == myPointArray[row + 1][col + 1].y)
+				{
+					rowEnd = mypt::mean(myPointArray[row + 1], numCols, false) - 2;
+					MyPoint<int> *tmp = new MyPoint<int>[numRows];
+					for (int i = 0; i < numRows; ++i)
+						tmp[i] = myPointArray[i][col + 1];
+					colEnd = mypt::mean(tmp, numCols, true) + 2;
+					delete[] tmp;
+				}
+				else
+				{
+					rowEnd = myPointArray[row + 1][col + 1].y - 2;
+					colEnd = myPointArray[row + 1][col + 1].x - 2;
+				}
+				cv::Mat roi = this->tableImg(cv::Range(rowBegin, rowEnd),
+					cv::Range(colBegin, colEnd));
+				this->cellList.push_back(cellImg(row, col, roi));
+			}
+		}
+	}
+
+	// 释放动态分配的内存
+	for (int i = 0; i < numRows; ++i)
+		delete[] myPointArray[i];
+	delete [] myPointArray;
+}
+
+
+bool GameRecord::_wordSplit(const cv::Mat &cell, std::vector<cv::Mat> &charRois, 
+	float thresh = 0.15)
+{
+	if (!3 == cell.channels())
+		return false;
+	if (!charRois.empty())
+		charRois.clear();
+	int height = cell.rows;
+	int width = cell.cols;
+	cv::Mat grayImg, blurImg, invImg;
 }
 
 
@@ -313,5 +387,7 @@ void GameRecord::getCellImage(std::vector<cv::Mat> &cellImgList)
 {
 	if (this->_cellExtract())
 	{
+		std::cout << this->cellList.size() << std::endl;
+		cv::imshow("img", this->cellList[6].roiImg);
 	}
 }

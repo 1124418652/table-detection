@@ -5,47 +5,14 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <array>
 #include <algorithm>
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include "compare.h"
-
-
-/**
- @brief 定义保存表格中单元格图片的结构
- */
-typedef struct cellImg {
-	int row;                // 单元格在表格中的行索引
-	int col;                // 单元格在表格中的列索引
-	cv::Mat roiImg;         // 单元格图片
-}cellImg;
-
-
-/**
- @brief 定义保存表格中字符图片的结构
-*/
-typedef struct charImg {
-	int row;              // 字符所在的单元格在表格中的行索引
-	int col;              // 字符所在的单元格在表格中的列索引
-	int index;            // 字符在单元格中的索引
-	cv::Mat roiImg;       // 字符图片
-}charImg;
-
-
-/**
- @brief 记录表格中横向和竖线的边缘以及坐标的结构体
- */
-typedef struct contoursCoord
-{
-	std::vector<cv::Point> contour;
-	float coord;
-	contoursCoord(const std::vector<cv::Point> &contour, float coord)
-	{
-		this->contour = contour;
-		this->coord = coord;
-	}
-}contoursCoord;
+#include "myPoint.h"
+#include "structDefine.h"
 
 
 class GameRecord {
@@ -64,7 +31,7 @@ private:
 	 @brief 从表格图片中提取出单元格的图片，保存于cellList中
 	 */
 	bool _cellExtract();
-	void _wordSplit(cv::Mat cell, float thresh = 0.15);
+	bool _wordSplit(const cv::Mat &cell, std::vector<cv::Mat> &charRois, float thresh = 0.15);
 
 public:
 

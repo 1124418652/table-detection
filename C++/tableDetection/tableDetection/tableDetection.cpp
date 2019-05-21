@@ -7,14 +7,20 @@
 #include <opencv2\imgproc.hpp>
 #include <opencv2\highgui.hpp>
 #include "gameRecord.h"
+#include "compare.h"
 
 using namespace std;
 using namespace cv;
+using namespace mypt;
 
 int main()
 {
 	string imgPath = "F:/program/小弦科技实习/table-detection/images/2.jpg";
 	cv::Mat image = imread(imgPath);
+
+	MyPoint<int> pt[10] = {MyPoint<int>(10, 10), MyPoint<int>(4, 6)};
+	cout << mypt::mean(pt, 10, false) << endl;
+
 
 	GameRecord grecord(image);
 	vector<Point> hullPoints;
