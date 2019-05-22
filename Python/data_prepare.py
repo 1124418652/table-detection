@@ -87,4 +87,3 @@ def extract_data(filepath = TRAIN_FILE):
 
 if __name__ == '__main__':
 	save_to_file(X, y, label2y)
-	extract_data()

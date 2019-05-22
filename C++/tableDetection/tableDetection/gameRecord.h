@@ -48,7 +48,7 @@ public:
 	 */
 	void getHull(std::vector<cv::Point2i> &hullPoints);
 	void getTableImage(cv::Mat &destImg);
-	void getCellImage(std::vector<cv::Mat> &cellImgList);
+	void getCellImage(std::vector<cellImg> &cellImgList);
 	void getCharImage(std::vector<charImg> &charList);
 };
 

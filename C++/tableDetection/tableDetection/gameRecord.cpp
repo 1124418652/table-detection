@@ -188,7 +188,6 @@ bool GameRecord::_warpTableRoi()
 	int colEnd = destPoints[1].x + 5 < width ? destPoints[1].x + 5 : width;
 
 	this->tableImg = warpedImg(cv::Range(rowBegin, rowEnd), cv::Range(colBegin, colEnd)).clone();
-	cv::imshow("table", this->tableImg);
 	return true;
 }
 
@@ -200,6 +199,8 @@ bool GameRecord::_cellExtract()
 			return false;
 	if (!this->cellList.empty())
 		this->cellList.clear();
+	if (!this->charList.empty())
+		this->charList.clear();
 
 	cv::Mat tableImg = this->tableImg.clone();
 	cv::Mat grayImg;
@@ -330,6 +331,12 @@ bool GameRecord::_cellExtract()
 				cv::Mat roi = this->tableImg(cv::Range(rowBegin, rowEnd),
 					cv::Range(colBegin, colEnd));
 				this->cellList.push_back(cellImg(row, col, roi));
+				std::vector<cv::Mat> charRois;
+				if (this->_wordSplit(roi, charRois))
+				{
+					for (int index = 0; index < (int)charRois.size(); ++index)
+						this->charList.push_back(charImg(row, col, index, charRois[index]));
+				}
 			}
 		}
 	}
@@ -341,8 +348,8 @@ bool GameRecord::_cellExtract()
 }
 
 
-bool GameRecord::_wordSplit(const cv::Mat &cell, std::vector<cv::Mat> &charRois, 
-	float thresh = 0.15)
+bool GameRecord::_wordSplit(const cv::Mat &cell, std::vector<cv::Mat> &charRois,
+	float thresh)
 {
 	if (!3 == cell.channels())
 		return false;
@@ -350,7 +357,164 @@ bool GameRecord::_wordSplit(const cv::Mat &cell, std::vector<cv::Mat> &charRois,
 		charRois.clear();
 	int height = cell.rows;
 	int width = cell.cols;
-	cv::Mat grayImg, blurImg, invImg;
+	cv::Mat image = cell.clone();
+
+	// 通过预处理得到二值图像
+	cv::Mat grayImg, blurImg, binaryImg;
+	cv::Mat meanKernel = cv::Mat::ones(3, 3, CV_32FC1) / 9.0;
+	cv::cvtColor(image, grayImg, cv::COLOR_BGR2GRAY);
+	cv::filter2D(grayImg, blurImg, -1, meanKernel);
+	cv::adaptiveThreshold(~blurImg, binaryImg, 1, cv::ADAPTIVE_THRESH_MEAN_C,
+		cv::THRESH_BINARY, 19, -2);
+
+	// 形态学处理
+	cv::Mat kernelDilate = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(1, height / 4));
+	cv::morphologyEx(binaryImg, binaryImg, cv::MORPH_DILATE, kernelDilate);
+
+	// 空白cell直接返回
+	if (cv::mean(binaryImg)[0] < thresh)
+		return false;
+
+	// 通过找连通域的方式来过滤掉较小的连通域
+	std::vector<std::vector<cv::Point>> contours;
+	cv::findContours(binaryImg, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
+	for (int i = contours.size() - 1; i >= 0; --i)
+	{
+		if (cv::contourArea(contours[i]) < (float)width * height / 50.0)
+			contours.erase(contours.begin() + i);
+	}
+	binaryImg = cv::Mat::zeros(cv::Size(width, height), CV_8UC1);
+	cv::drawContours(binaryImg, contours, -1, 1, -1);
+
+	// 统计横向和纵向的直方图
+	std::vector<int> rowCount;
+	std::vector<int> colCount;
+	for (int i = 0; i < image.cols; ++i)
+		rowCount.push_back(cv::sum(binaryImg.col(i))[0]);
+	for (int i = 0; i < image.rows; ++i)
+		colCount.push_back(cv::sum(binaryImg.row(i))[0]);
+
+	int colBegin = width;
+	int colEnd = 0;
+	for (int i = 0; i < width; ++i)
+	{
+		if (rowCount[i] >= 2)
+		{
+			colBegin = std::max({ 0, i - 2 });
+			for (int j = 0; j < width; ++j)
+			{
+				if (rowCount[width - 1 - j] >= 2)
+				{
+					colEnd = std::min({ width - j + 2, width });
+					break;
+				}
+			}
+			break;
+		}
+	}
+
+	int rowBegin = height;
+	int rowEnd = 0;
+	for (int i = 0; i < height; ++i)
+	{
+		if (colCount[i] >= 2)
+		{
+			rowBegin = std::max({ 0, i });
+			for (int j = 0; j < height; ++j)
+			{
+				if (colCount[height - 1 - j] >= 2)
+				{
+					rowEnd = std::min({ height - j, height });
+					break;
+				}
+			}
+			break;
+		}
+	}
+
+	// 裁剪掉图片中的空白区域
+	if (colBegin < colEnd)
+	{
+		if (rowBegin < rowEnd)
+		{
+			image = image(cv::Range(rowBegin, rowEnd),
+				cv::Range(colBegin, colEnd));
+			binaryImg = binaryImg(cv::Range(rowBegin, rowEnd),
+				cv::Range(colBegin, colEnd));
+			std::vector<int> tmpRow(rowCount.begin() + colBegin, rowCount.begin() + colEnd);
+			std::vector<int> tmpCol(colCount.begin() + rowBegin, colCount.begin() + rowEnd);
+			rowCount.clear();
+			colCount.clear();
+			rowCount = tmpRow;
+			colCount = tmpCol;
+			width = image.cols;
+			height = image.rows;
+		}
+		else
+			return false;
+	}
+	else
+		return false;
+
+	// 找到波谷的位置
+	std::vector<int> trough = {0};
+	std::vector<int>::iterator maxPeakIter = std::max_element(rowCount.begin(), rowCount.end());
+	int maxPeak = *maxPeakIter;    // 最大峰值
+	for (int i = 1; i < (int)rowCount.size() - 1; ++i)
+	{
+		// 当波谷是一条横线，找左分割边界
+		if (rowCount[i] <= rowCount[i - 1] && rowCount[i] < rowCount[i + 1]
+			&& rowCount[i] < maxPeak / 3){
+			if ((int)trough.size() > 0 && (i - 1 - trough.back()) <= 3) {
+				trough.back() = (int)((i - 1 + trough.back()) / 2);
+			}
+			else
+				trough.push_back(i - 1);
+		}
+		// 当波谷是一条横线，找右分割边界
+		if (rowCount[i] < rowCount[i - 1] && rowCount[i] <= rowCount[i + 1]
+			&& rowCount[i] < maxPeak / 3){
+			if ((int)trough.size() > 0 && (i + 1 - trough.back()) <= 3) {
+				trough.back() = (int)((i + 1 + trough.back()) / 2);
+			}
+			else
+				trough.push_back(i + 1);
+		}
+	}
+	if (width - trough.back() <= 3)
+		trough.back() = width;
+	else
+		trough.push_back(width);
+
+	// 如果没有找到波谷，就进行均分
+	if (trough.size() <= 2)
+		trough.insert(trough.begin() + 1, width / 2);
+
+	// 如果最大的分割宽度大于第二大分割宽度的1.5倍，就对最大分割宽度进行均分
+	std::vector<cv::Vec2i> splitWidth;
+	for (int i = 0; i < (int)trough.size() - 1; ++i)
+		splitWidth.push_back(cv::Vec2i(i, trough[i + 1] - trough[i]));
+
+	std::sort(splitWidth.begin(), splitWidth.end(), cmpVec2i);
+	if (splitWidth.back()[1] >= (int)(splitWidth[splitWidth.size() - 2][1] * 1.5) && splitWidth.back()[1] > height)
+		trough.insert(trough.begin() + splitWidth.back()[0] + 1, (trough[splitWidth.back()[0]] + splitWidth.back()[1]) / 2);
+
+	// 对于分割较小的连续区域需要进行合并
+	if (splitWidth.size() >= 3)
+	{
+		if (abs(splitWidth[0][0] - splitWidth[1][0]) == 1)
+		{
+			if (splitWidth[0][1] + splitWidth[1][1] < 1.2 * splitWidth[2][1])
+				trough.erase(trough.begin() + std::max({ splitWidth[0][0], splitWidth[1][0] }));
+		}
+	}
+
+	for (int i = 0; i < (int)trough.size() - 1; ++i)
+	{
+		cv::Mat roi = image(cv::Range::all(), cv::Range(trough[i], trough[i + 1]));
+		charRois.push_back(roi);
+	}
+	return true;
 }
 
 
@@ -383,11 +547,19 @@ void GameRecord::getTableImage(cv::Mat &destImg)
 }
 
 
-void GameRecord::getCellImage(std::vector<cv::Mat> &cellImgList)
+void GameRecord::getCellImage(std::vector<cellImg> &cellImgList)
 {
-	if (this->_cellExtract())
-	{
-		std::cout << this->cellList.size() << std::endl;
-		cv::imshow("img", this->cellList[6].roiImg);
-	}
+	if (this->cellList.empty())
+		if (!this->_cellExtract())
+			std::cout << "Can't split the characters!" << std::endl;
+	cellImgList = this->cellList;
+}
+
+
+void GameRecord::getCharImage(std::vector<charImg> &charList)
+{
+	if (this->charList.empty())
+		if (!this->_cellExtract())
+			std::cout << "Can't split the characters!" << std::endl;
+	charList = this->charList;
 }

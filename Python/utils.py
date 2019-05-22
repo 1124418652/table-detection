@@ -121,7 +121,7 @@ def warp_table_roi(image, hull_points):
 	return tabel_roi
 
 
-def table_extract_new(image, img_name, save_img = False):
+def table_extract_new(image, img_name, save_img = False, save_char_img = False):
 	height, width = image.shape[:2]
 	img_show = image.copy()
 	gray_img = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -212,6 +212,12 @@ def table_extract_new(image, img_name, save_img = False):
 				if save_img:
 					img_path = '../sheet_src_imgs/' + image_name + '-' + str(row) + '-' + str(col) + '.jpg'
 					cv2.imwrite(img_path, roi)
+				if save_char_img:
+					char_rois = word_split(roi)
+					for index, v in enumerate(char_rois):
+						img_path = '../character_imgs/' + image_name + '-' + str(row) + '-' + str(col) + '-'\
+							+ str(index) + '.jpg'
+						cv2.imwrite(img_path, v)
 	cv2.imshow("roi", sheet_roi_imgs[1][0])
 
 
@@ -242,8 +248,8 @@ def word_split(image, thresh = 0.15):
 		if cv2.contourArea(contour) < width * height / 50:
 			continue
 		selected_contours.append(contour)
-		contours_img = np.zeros_like(binary_img)
-		cv2.drawContours(contours_img, selected_contours, -1, 1, -1)
+	contours_img = np.zeros_like(binary_img)
+	cv2.drawContours(contours_img, selected_contours, -1, 1, -1)
 
 	kernel_open = np.ones((3, 1), np.uint8)
 	contours_img = cv2.morphologyEx(contours_img, cv2.MORPH_OPEN, kernel_open)
@@ -254,33 +260,32 @@ def word_split(image, thresh = 0.15):
 	col_begin = width
 	col_end = 0
 	for i in range(width):
-		if row_count[i] >= 2:
-			col_begin = i
-			for j in range(width):
-				if row_count[width - 1 - j] >= 2:
-					col_end = width - j
-					break
-			break
+	    if row_count[i] >= 2:
+	        col_begin = max(0, i - 2)
+	        for j in range(width):
+	            if row_count[width - 1 - j] >= 2:
+	                col_end = min(width, width - j + 2)
+	                break
+	        break
 
 	row_begin = height
 	row_end = 0
 	for i in range(height):
-		if col_count[i] >= 2:
-			row_begin = i
-			for j in range(height):
-				if col_count[height - 1 - j] >= 2:
-					row_end = height - j
-					break
-			break
-		
-	if col_begin < col_end:
-		image = image[max(0, row_begin): min(height, row_end), 
-					max(0, col_begin - 2): min(width, col_end + 2), :]
-		contours_img = contours_img[max(0, row_begin): min(height, row_end), 
-									max(0, col_begin - 2): min(width, col_end + 2)]
-		row_count = row_count[col_begin: col_end]
-		col_count = col_count[row_begin: row_end]
-		height, width = image.shape[:2]
+	    if col_count[i] >= 2:
+	        row_begin = max(0, i)
+	        for j in range(height):
+	            if col_count[height - 1 - j] >= 2:
+	                row_end = min(height, height - j)
+	                break
+	        break
+	    
+	if col_begin < col_end:  # 只有满足这两个条件才进行后续步骤
+	    if row_begin < row_end:
+	        image = image[row_begin: row_end, col_begin: col_end, :]
+	        contours_img = contours_img[row_begin: row_end, col_begin: col_end]
+	        row_count = row_count[col_begin: col_end]
+	        col_count = col_count[row_begin: row_end]
+	        height, width = image.shape[:2]
 
 	print(height, width)
 
@@ -288,37 +293,43 @@ def word_split(image, thresh = 0.15):
 	max_peak = max(row_count)
 	print(max_peak)
 	for i in range(1, len(row_count)-1):
-		# 当波谷是一条横线，找左分割边界
-		if (row_count[i] <= row_count[i - 1] and row_count[i] < row_count[i + 1])\
-			and row_count[i] < max_peak / 3:
-			if len(trough) > 0 and (i - 1 - trough[-1]) <= 3:       # 保证分割的间距要大于3个像素
-				trough[-1] = int((i - 1 + trough[-1]) / 2)
-			else:
-				trough.append(i - 1)
-				
-		# 当波谷是一条横线，找左分割边界
-		if (row_count[i] < row_count[i - 1] and row_count[i] <= row_count[i + 1])\
-			and row_count[i] < max_peak / 3:
-			if len(trough) > 0 and (i + 1 - trough[-1]) <= 3:
-				trough[-1] = int((i + 1 + trough[-1]) / 2)
-			else:
-				trough.append(i + 1)
-	trough.append(width)
+	    # 当波谷是一条横线，找右分割边界
+	    if (row_count[i] <= row_count[i - 1] and row_count[i] < row_count[i + 1])\
+	        and row_count[i] < max_peak / 3:
+	        if len(trough) > 0 and (i - 1 - trough[-1]) <= 3:       # 保证分割的间距要大于3个像素
+	            trough[-1] = int((i - 1 + trough[-1]) / 2)
+	        else:
+	            trough.append(i - 1)
+	            
+	    # 当波谷是一条横线，找左分割边界
+	    if (row_count[i] < row_count[i - 1] and row_count[i] <= row_count[i + 1])\
+	        and row_count[i] < max_peak / 3:
+	        if len(trough) > 0 and (i + 1 - trough[-1]) <= 3:
+	            trough[-1] = int((i + 1 + trough[-1]) / 2)
+	        else:
+	            trough.append(i + 1)
+	if (width - trough[-1] <= 3):
+	    trough[-1] = width
+	else:
+	    trough.append(width)
 
 	# 如果没有找到波谷，就进行均分
-	if len(trough) <= 2:     # 只有0和width两个分界点
-		trough.insert(1, int(width / 2))
-
+	if len(trough) <= 2:
+	    trough.insert(1, int(width / 2))
+	    
 	# 如果最大的分割宽度大于第二大分割宽度的1.5倍，就对最大分割宽度进行均分
-	split_width = []	
+	# 记录每个分割宽度的列表
+	split_width = []
 	for i in range(len(trough) - 1):
-		split_width.append(trough[i + 1] - trough[i])
+	    split_width.append(trough[i + 1] - trough[i])
+	# split_width.append(width - trough[-1][0])
 	split_width = list(zip(range(len(split_width)), split_width))
 	print("width of every characters: ", split_width)
+	# 对split_width进行排序
 	split_width = sorted(split_width, key = lambda x: x[1])
-	print("width of every characters: ", split_width)
-	if split_width[-1][1] > split_width[-2][1] * 1.5:
-		trough.insert(split_width[-1][0] + 1, int(trough[split_width[-1][0]] + split_width[-1][1] / 2))
+	print("sorted width of every characters: ", split_width)
+	if split_width[-1][1] >= int(split_width[-2][1] * 1.5) and split_width[-1][1] > height:
+	    trough.insert(split_width[-1][0] + 1, int(trough[split_width[-1][0]] + split_width[-1][1] / 2))
 
 	# 对于分割宽度较小的区域，进行合并
 	if len(split_width) >= 3:
@@ -335,14 +346,18 @@ def word_split(image, thresh = 0.15):
 
 
 if __name__ == '__main__':
-	file_path = '../sheet_src_imgs/1-17-2.jpg'
+	file_path = '../images/5.jpg'
 	image_name = os.path.split(file_path)[-1].split('.')[0]
 	print(image_name)
 	image = cv2.imread(file_path)
-	# hull, _image = find_hull(image)
-	# table = warp_table_roi(image, hull)
+	hull, _image = find_hull(image)
+	table = warp_table_roi(image, hull)
 	# print(hull)
-	# table_extract_new(table, image_name, save_img = True)
-	word_split(image)
+	table_extract_new(table, image_name, False, True)
+	# char_rois = word_split(image)
+	# i = 0
+	# for img in char_rois:
+	# 	i += 1
+	# 	cv2.imshow(str(i), img)
 	# cv2.imshow("image", _image)
 	cv2.waitKey(0)

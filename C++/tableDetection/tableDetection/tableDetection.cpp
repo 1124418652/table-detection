@@ -16,19 +16,21 @@ using namespace mypt;
 int main()
 {
 	string imgPath = "F:/program/小弦科技实习/table-detection/images/2.jpg";
-	cv::Mat image = imread(imgPath);
+	cv::Mat image = imread(imgPath);            // 读取图片
 
-	MyPoint<int> pt[10] = {MyPoint<int>(10, 10), MyPoint<int>(4, 6)};
-	cout << mypt::mean(pt, 10, false) << endl;
-
-
-	GameRecord grecord(image);
-	vector<Point> hullPoints;
-	vector<Mat> cellImgList;
+	GameRecord grecord(image);    // 初始化对象，可以是BGR图片或者 *data, row, col, channel 作为参数
+	vector<Point> hullPoints;     // 用于作为参数提取并记录表格的交点
+	vector<cellImg> cellImgList;  // 用于作为参数提取并记录每个单元格的索引和图片, row, col, roiImg。row，col表示第几行第几列
+	std::vector<charImg> charList;  // 用于作为参数提取并记录每个字符的索引和图片, row，col，index，roiImg。index表示为单元格中分割出的第几个字符
 	cv::Mat destImg;
-	grecord.getHull(hullPoints);
-	grecord.getTableImage(destImg);
-	grecord.getCellImage(cellImgList);
+	grecord.getHull(hullPoints);             // 提取角点
+	grecord.getTableImage(destImg);          // 提取表格图片
+	grecord.getCellImage(cellImgList);       // 提取表格中的所有单元格结构
+	grecord.getCharImage(charList);          // 提取表格中的所有字符结构
+
+	cv::imshow("table image", destImg);
+	cv::imshow("cell image", cellImgList.front().roiImg);
+	cv::imshow("char image", charList.front().roiImg);
 
 	//imshow("image", image);
 	waitKey(0);

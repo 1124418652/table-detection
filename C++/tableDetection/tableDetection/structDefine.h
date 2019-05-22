@@ -26,6 +26,9 @@ typedef struct charImg {
 	int col;              // 字符所在的单元格在表格中的列索引
 	int index;            // 字符在单元格中的索引
 	cv::Mat roiImg;       // 字符图片
+	charImg(int row, int col, int index, cv::Mat roiImg) :row(row), col(col), index(index) {
+		this->roiImg = roiImg.clone();
+	}
 }charImg;
 
 

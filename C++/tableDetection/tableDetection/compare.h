@@ -12,6 +12,7 @@
 bool cmpX(const cv::Point &p1, const cv::Point &p2);
 bool cmpY(const cv::Point &p1, const cv::Point &p2);
 bool cmpCoord(const struct contoursCoord &a1, const struct contoursCoord &a2);
+bool cmpVec2i(const cv::Vec2i &, const cv::Vec2i &);
 
 namespace mypt {
 	template<typename _Tp>
