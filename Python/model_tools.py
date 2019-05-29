@@ -176,6 +176,8 @@ def dense(layer_name, X, num_nodes, batch_norm = True, activate_type = 'relu'):
 			X = tf.nn.sigmoid(X, name = 'sigmoid_activate')
 		elif 'tanh' == activate_type:
 			X = tf.nn.tanh(X, name = 'tanh_activate')
+		elif 'leaky_relu' == activate_type:
+			X = tf.nn.leaky_relu(X, name = 'leaky_relu')
 		else:
 			raise ValueError
 

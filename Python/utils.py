@@ -346,11 +346,12 @@ def word_split(image, thresh = 0.15):
 
 
 if __name__ == '__main__':
-	file_path = '../images/5.jpg'
+	file_path = '../images/12.jpg'
 	image_name = os.path.split(file_path)[-1].split('.')[0]
 	print(image_name)
 	image = cv2.imread(file_path)
 	hull, _image = find_hull(image)
+	cv2.imshow('source image', _image)
 	table = warp_table_roi(image, hull)
 	# print(hull)
 	table_extract_new(table, image_name, False, True)
